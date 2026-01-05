@@ -1,0 +1,5 @@
+{
+  "name": "SPSS Exam Generator",
+  "description": "An application for instructors to create and manage SPSS-related exams and for students to take them. Features include dynamic exam generation based on difficulty, question bank management, and exporting student answers to Excel.",
+  "requestFramePermissions": []
+}
