@@ -4,6 +4,7 @@ import type { ExamConfig, QuestionBank, QuestionMCQ, QuestionOpen } from '../typ
 import { supabase, supabaseConfigStatus } from '../src/lib/supabaseClient';
 import { listQuestions } from '../src/services/questionsRepo';
 import SupabaseLoginCard from './SupabaseLoginCard';
+import ExamItemsManager from './ExamItemsManager';
 
 const useSupabase = supabaseConfigStatus.isConfigured;
 
@@ -19,6 +20,8 @@ interface InstructorViewProps {
   onGenerateExam: () => void;
   loginError: string;
   onSupabaseAuthChange: () => void;
+  currentExamId: string | null;
+  onExamReload: (examId: string) => Promise<void>;
 }
 
 const StatCard: React.FC<{ label: string; value: number; ok: boolean }> = ({ label, value, ok }) => (
@@ -47,6 +50,8 @@ const InstructorView: React.FC<InstructorViewProps> = ({
   onGenerateExam,
   loginError,
   onSupabaseAuthChange,
+  currentExamId,
+  onExamReload,
 }) => {
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -143,6 +148,14 @@ const InstructorView: React.FC<InstructorViewProps> = ({
     const hard = mcq.filter(q => ['Evaluate', 'Create'].includes(q.bloom_level)).length;
     return { mcq, open, easy, medium, hard };
   }, [questionBank]);
+
+  // Calculate difficulty percentage sum for live indicator
+  const difficultySum = useMemo(() => {
+    const easy = Number(examConfig.easyPercent) || 0;
+    const medium = Number(examConfig.mediumPercent) || 0;
+    const hard = Number(examConfig.hardPercent) || 0;
+    return easy + medium + hard;
+  }, [examConfig.easyPercent, examConfig.mediumPercent, examConfig.hardPercent]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -339,6 +352,17 @@ const InstructorView: React.FC<InstructorViewProps> = ({
                 <input type="number" name="hardPercent" value={examConfig.hardPercent} onChange={handleConfigChange} className="w-full p-2 border rounded-md"/>
               </div>
             </div>
+            <div className={`mt-3 text-sm font-semibold text-center py-2 px-4 rounded-lg border-2 ${
+              difficultySum === 100
+                ? 'bg-green-50 text-green-700 border-green-300'
+                : 'bg-yellow-50 text-yellow-700 border-yellow-300'
+            }`}>
+              {difficultySum === 100 ? (
+                <>סה״כ: 100% ✅</>
+              ) : (
+                <>סה״כ: {difficultySum}% ❌ (חייב להיות 100%)</>
+              )}
+            </div>
           </ConfigSection>
 
           <ConfigSection title="📈 סטטיסטיקות מאגר">
@@ -408,6 +432,8 @@ const InstructorView: React.FC<InstructorViewProps> = ({
             </ConfigSection>
         </div>
       </div>
+
+      <ExamItemsManager currentExamId={currentExamId} questionBank={questionBank} onExamReload={onExamReload} />
 
       <div className="mt-8 text-center">
         <button

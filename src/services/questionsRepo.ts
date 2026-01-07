@@ -205,3 +205,207 @@ export const deleteQuestion = async (id: string): Promise<void> => {
     throw error;
   }
 };
+
+/**
+ * Finds a replacement question matching the same slot (type/topic/difficulty)
+ * Excludes questions already in the exam
+ * @param currentQuestionId - The question ID to replace
+ * @param examId - Exam ID to check for duplicates
+ * @returns Replacement Question or null if none found
+ */
+export const findReplacementQuestion = async (
+  currentQuestionId: string,
+  examId: string
+): Promise<Question | null> => {
+  // Get the current question to extract its attributes
+  const { data: currentQuestion, error: currentError } = await supabase
+    .from('question_bank')
+    .select('*')
+    .eq('id', currentQuestionId)
+    .single();
+
+  if (currentError || !currentQuestion) {
+    console.error('Error fetching current question:', currentError);
+    return null;
+  }
+
+  const currentRow = currentQuestion as DBQuestionRow;
+  const currentType = currentRow.type;
+  const currentTopic = currentRow.topic;
+  const currentDifficulty = currentRow.difficulty;
+
+  // Get all question IDs already in this exam (to exclude duplicates)
+  const { data: examItems, error: examItemsError } = await supabase
+    .from('exam_items')
+    .select('question_id')
+    .eq('exam_id', examId);
+
+  if (examItemsError) {
+    console.error('Error fetching exam items:', examItemsError);
+    return null;
+  }
+
+  const existingQuestionIds = new Set(
+    (examItems || []).map((item: { question_id: string }) => item.question_id)
+  );
+
+  // Build query to find matching questions
+  let query = supabase
+    .from('question_bank')
+    .select('*')
+    .eq('type', currentType)
+    .neq('id', currentQuestionId); // Exclude the current question itself
+
+  // Match topic if it exists
+  if (currentTopic) {
+    query = query.eq('topic', currentTopic);
+  } else {
+    // If current question has no topic, match questions with no topic
+    query = query.is('topic', null);
+  }
+
+  // Match difficulty
+  if (currentDifficulty) {
+    query = query.eq('difficulty', currentDifficulty);
+  }
+
+  const { data: candidates, error: candidatesError } = await query;
+
+  if (candidatesError) {
+    console.error('Error fetching replacement candidates:', candidatesError);
+    return null;
+  }
+
+  if (!candidates || candidates.length === 0) {
+    return null;
+  }
+
+  // Filter out questions already in the exam
+  const availableCandidates = candidates.filter(
+    (q: DBQuestionRow) => !existingQuestionIds.has(q.id)
+  );
+
+  if (availableCandidates.length === 0) {
+    return null;
+  }
+
+  // Return a random replacement
+  const randomIndex = Math.floor(Math.random() * availableCandidates.length);
+  const selectedCandidate = availableCandidates[randomIndex] as DBQuestionRow;
+
+  return fromDbRow(selectedCandidate);
+};
+
+/**
+ * Candidate question with metadata (includes difficulty from DB)
+ */
+export interface CandidateQuestion extends Question {
+  difficulty?: number; // From DB, may not exist
+}
+
+/**
+ * Fetches candidate questions for manual replacement
+ * @param currentQuestionId - The question ID being replaced (to exclude it)
+ * @param examId - Exam ID to check for duplicates
+ * @param options - Filtering options
+ * @returns Array of candidate Questions with difficulty metadata
+ */
+export const getCandidateQuestions = async (
+  currentQuestionId: string,
+  examId: string,
+  options: {
+    filterByConfig?: boolean; // Filter by current question's type/bloom_level/difficulty
+    allowDuplicates?: boolean; // Allow questions already in exam
+    searchText?: string; // Search in question_text
+  } = {}
+): Promise<CandidateQuestion[]> => {
+  const { filterByConfig = true, allowDuplicates = false, searchText = '' } = options;
+
+  // Get the current question to extract its attributes (if filtering by config)
+  let currentRow: DBQuestionRow | null = null;
+  if (filterByConfig) {
+    const { data: currentQuestion, error: currentError } = await supabase
+      .from('question_bank')
+      .select('*')
+      .eq('id', currentQuestionId)
+      .single();
+
+    if (!currentError && currentQuestion) {
+      currentRow = currentQuestion as DBQuestionRow;
+    }
+  }
+
+  // Get all question IDs already in this exam (to exclude duplicates if needed)
+  let existingQuestionIds = new Set<string>();
+  if (!allowDuplicates) {
+    const { data: examItems, error: examItemsError } = await supabase
+      .from('exam_items')
+      .select('question_id')
+      .eq('exam_id', examId);
+
+    if (!examItemsError && examItems) {
+      existingQuestionIds = new Set(
+        examItems.map((item: { question_id: string }) => item.question_id)
+      );
+    }
+  }
+
+  // Build query
+  let query = supabase
+    .from('question_bank')
+    .select('*')
+    .neq('id', currentQuestionId); // Always exclude the current question itself
+
+  // Apply config filter if requested
+  if (filterByConfig && currentRow) {
+    query = query.eq('type', currentRow.type);
+    
+    // Match bloom_level if present
+    if (currentRow.bloom_level) {
+      query = query.eq('bloom_level', currentRow.bloom_level);
+    }
+    
+    // Match difficulty if present
+    if (currentRow.difficulty) {
+      query = query.eq('difficulty', currentRow.difficulty);
+    }
+    
+    // Match topic if it exists
+    if (currentRow.topic) {
+      query = query.eq('topic', currentRow.topic);
+    } else {
+      // If current question has no topic, match questions with no topic
+      query = query.is('topic', null);
+    }
+  }
+
+  // Apply search filter if provided
+  if (searchText.trim()) {
+    query = query.ilike('question_text', `%${searchText.trim()}%`);
+  }
+
+  const { data: candidates, error: candidatesError } = await query.order('created_at', { ascending: false });
+
+  if (candidatesError) {
+    console.error('Error fetching candidate questions:', candidatesError);
+    return [];
+  }
+
+  if (!candidates || candidates.length === 0) {
+    return [];
+  }
+
+  // Filter out duplicates if not allowed
+  const availableCandidates = allowDuplicates
+    ? candidates
+    : candidates.filter((q: DBQuestionRow) => !existingQuestionIds.has(q.id));
+
+  // Convert to CandidateQuestion with difficulty metadata
+  return availableCandidates.map((row: DBQuestionRow) => {
+    const question = fromDbRow(row);
+    return {
+      ...question,
+      difficulty: row.difficulty,
+    } as CandidateQuestion;
+  });
+};

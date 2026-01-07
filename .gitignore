@@ -26,3 +26,14 @@ dist-ssr
 # Firebase
 .firebase/
 
+# Migration reports (may contain sensitive data)
+migration_reports/*.json
+
+# local exports / reports
+question_bank_export.json
+question_bank_export_report.txt
+migration_reports/
+seeds/
+scripts/
+
+
