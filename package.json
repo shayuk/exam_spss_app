@@ -6,16 +6,22 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "migrate:dry-run": "tsx scripts/migrateFirebaseToSupabase.ts --dry-run",
+    "migrate:apply": "tsx scripts/migrateFirebaseToSupabase.ts --apply",
+    "seed:import": "tsx scripts/importSeedToSupabase.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.89.0",
     "@vitejs/plugin-react": "^4.6.0",
+    "dotenv": "^17.2.3",
+    "firebase-admin": "^12.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "tsx": "^4.7.0",
     "typescript": "~5.7.2",
     "vite": "^6.3.5"
   },
